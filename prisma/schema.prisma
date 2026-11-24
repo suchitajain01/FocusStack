@@ -1,0 +1,94 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  STUDENT
+  FACULTY
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  SUBMITTED
+  TERMINATED
+}
+
+enum ViolationType {
+  TAB_SWITCH
+  FULLSCREEN_EXIT
+  SPLIT_SCREEN
+  NO_FACE
+  MULTIPLE_FACES
+  PHONE_DETECTED
+  SHORTCUT_ATTEMPT
+}
+
+model User {
+  id           String        @id @default(uuid())
+  rollNumber   String        @unique
+  email        String        @unique
+  passwordHash String
+  role         Role          @default(STUDENT)
+  quizzes      Quiz[]        @relation("FacultyQuizzes")
+  sessions     ExamSession[]
+  createdAt    DateTime      @default(now())
+}
+
+model Quiz {
+  id                 String        @id @default(uuid())
+  title              String
+  startTime          DateTime
+  endTime            DateTime
+  timePerQuestionSec Int           @default(45)
+  maxStrikes         Int           @default(3)
+  questionsToServe   Int
+  facultyId          String
+  faculty            User          @relation("FacultyQuizzes", fields: [facultyId], references: [id])
+  questions          Question[]
+  sessions           ExamSession[]
+  createdAt          DateTime      @default(now())
+}
+
+model Question {
+  id                 String   @id @default(uuid())
+  quizId             String
+  quiz               Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  questionText       String
+  options            String[]
+  correctOptionIndex Int      // Never send this field to the student frontend
+  marks              Int      @default(1)
+}
+
+model ExamSession {
+  id                   String         @id @default(uuid())
+  userId               String
+  user                 User           @relation(fields: [userId], references: [id])
+  quizId               String
+  quiz                 Quiz           @relation(fields: [quizId], references: [id])
+  sessionToken         String         @unique // Locks attempt to one active WebSocket/device
+  assignedQuestionIds  String[]       // Randomized subset of question IDs for this student
+  currentQuestionIndex Int            @default(0)
+  questionStartedAt    DateTime       @default(now())
+  answers              Json           @default("{}") // Stores { "questionId": selectedIndex }
+  strikeCount          Int            @default(0)
+  status               SessionStatus  @default(IN_PROGRESS)
+  score                Int?
+  violations           ViolationLog[]
+  createdAt            DateTime       @default(now())
+
+  @@unique([userId, quizId]) // Prevents a student from starting duplicate attempts
+}
+
+model ViolationLog {
+  id          String        @id @default(uuid())
+  sessionId   String
+  session     ExamSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type        ViolationType
+  snapshotUrl String?       // Optional webcam image captured during phone/face violations
+  timestamp   DateTime      @default(now())
+}
